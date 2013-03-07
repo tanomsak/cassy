@@ -2,14 +2,16 @@ module Cassy
   class SessionsController < ApplicationController
     include Cassy::Utils
     include Cassy::CAS
-
+  
     def new
       detect_ticketing_service(params[:service])
       
       @renew = params['renew']
       @gateway = params['gateway'] == 'true' || params['gateway'] == '1'
       @hostname = env['HTTP_X_FORWARDED_FOR'] || env['REMOTE_HOST'] || env['REMOTE_ADDR']
+
       tgt, tgt_error = Cassy::TicketGrantingTicket.validate(request.cookies['tgt'])
+
       if tgt
         flash.now[:notice] = "You are currently logged in as '%s'." % ticketed_user(tgt).send(settings[:username_field])
       end
@@ -19,18 +21,19 @@ module Cassy
       end
       
       if @service
-        if @ticketed_user && cas_login
-          redirect_to @service_with_ticket
-        elsif !@renew && tgt && !tgt_error
-          find_or_generate_service_tickets(ticket_username, tgt)
-          st = @service_tickets[@ticketing_service]
-          redirect_to = service_uri_with_ticket(@ticketing_service, st)
+
+        if @ticketed_user
+          st = find_or_generate_service_tickets(@service, ticket_username, tgt, @hostname)
+          redirect_to service_uri_with_ticket(@ticketing_service, st)
+        elsif !@renew && tgt && !tgt_error          
+          st = find_or_generate_service_tickets(@service, ticket_username, tgt, @hostname)
+          redirect_to service_uri_with_ticket(@ticketing_service, st)
         elsif @gateway
-          redirect_to = @gateway
+          redirect_to @gateway
         end
       elsif @gateway
         flash.now[:error] = "The server cannot fulfill this gateway request because no service parameter was given."
-      end
+      end      
 
       @lt = generate_login_ticket.ticket
     end
@@ -47,9 +50,10 @@ module Cassy
       end
 
       logger.debug("Logging in with username: #{@username}, lt: #{@lt}, service: #{@service}, auth: #{settings[:auth].inspect}")
+
       if cas_login
         redirect_to after_sign_in_path_for(@service_with_ticket)
-      else
+      else        
         incorrect_credentials!
       end
     end
@@ -70,6 +74,16 @@ module Cassy
       
       if tgt
         Cassy::TicketGrantingTicket.transaction do
+
+          tgt.granted_service_tickets.each do |st|
+            send_logout_notification_for_service_ticket(st) if settings[:enable_single_sign_out]
+
+            # TODO: Maybe we should do some special handling if send_logout_notification_for_service_ticket fails?
+            #       (the above method returns false if the POST results in a non-200 HTTP response).
+            logger.debug "Deleting #{st.class.name.demodulize} #{st.ticket.inspect} for service #{st.service}."
+            st.destroy
+          end
+
           pgts = Cassy::ProxyGrantingTicket.find(:all,
             :conditions => [ActiveRecord::Base.connection.quote_table_name(Cassy::ServiceTicket.table_name)+".username = ?", tgt.username],
             :include => :service_ticket)

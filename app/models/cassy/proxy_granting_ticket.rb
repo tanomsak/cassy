@@ -14,7 +14,7 @@ module Cassy
       logger.warn("#{error.code} - #{error.message}")
     elsif pgt = ProxyGrantingTicket.find_by_ticket(ticket)
       if pgt.service_ticket
-        logger.info("Proxy granting ticket '#{ticket}' belonging to user '#{pgt.service_ticket.username}' successfully validated.")
+        logger.debug("Proxy granting ticket '#{ticket}' belonging to user '#{pgt.service_ticket.username}' successfully validated.")
       else
         error = Error.new(:INTERNAL_ERROR, "Proxy granting ticket '#{ticket}' is not associated with a service ticket.")
         logger.error("#{error.code} - #{error.message}")

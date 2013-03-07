@@ -41,7 +41,7 @@ module Cassy
           [nil, "The ticket #{ticket} belonging to user #{st.username} is valid but the requested service #{service} doesn't match the service #{st.service} associated with the ticket."]
         else
           st.consume!
-          logger.info("Ticket '#{ticket}' for service '#{service}' for user '#{st.username}' successfully validated.")
+          logger.warn("Ticket '#{ticket}' for service '#{service}' for user '#{st.username}' successfully validated.")
           [st, "Ticket '#{ticket}' for '#{service}' for user '#{st.username}' successfully validted."]
         end
       else
@@ -52,6 +52,12 @@ module Cassy
     
 
     def matches_service?(service)
+
+      # logger.warn "Cassy::CAS.base_service_url(self.service) = #{Cassy::CAS.base_service_url(self.service)}"
+      # logger.warn "Cassy::CAS.base_service_url(service) = #{Cassy::CAS.base_service_url(service)}"
+      # logger.warn "Cassy::CAS.clean_service_url(self.service) = #{Cassy::CAS.clean_service_url(self.service)}"
+      # logger.warn "Cassy::CAS.clean_service_url(service) = #{Cassy::CAS.clean_service_url(service)}"
+
       if Cassy.config[:loosely_match_services] == true
         Cassy::CAS.base_service_url(self.service) == Cassy::CAS.base_service_url(service)
       else
@@ -77,7 +83,7 @@ module Cassy
           <samlp:SessionIndex>#{st.ticket}</samlp:SessionIndex>
           </samlp:LogoutRequest>})})
         if response.kind_of? Net::HTTPSuccess
-          logger.info "Logout notification successfully posted to #{st.service.inspect}."
+          logger.debug "Logout notification successfully posted to #{st.service.inspect}."
           return true
         else
           logger.error "Service #{st.service.inspect} responed to logout notification with code '#{response.code}'!"

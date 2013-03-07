@@ -16,7 +16,7 @@ module Cassy
       elsif tgt = TicketGrantingTicket.find_by_ticket(ticket)
         if Cassy.config[:maximum_session_lifetime] && Time.now - Cassy.config[:maximum_session_lifetime] > tgt.created_on
   	      tgt.destroy
-  	      [nil, "Ticket TGT-12345678901234567890 has expired. Please log in again."]
+  	      [nil, "Ticket '#{ticket}' has expired. Please log in again."]
         else
           [tgt, "Ticket granting ticket '#{ticket}' for user '#{tgt.username}' successfully validated."]
         end

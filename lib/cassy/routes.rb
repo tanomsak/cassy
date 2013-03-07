@@ -3,8 +3,8 @@ module ActionDispatch::Routing
     def cassy(options={})
       options[:controllers] ||= HashWithIndifferentAccess.new
       options[:controllers][:sessions] ||= "cassy/sessions"
-      scope(:path => "cas") do
-        root :to => "#{options[:controllers][:sessions]}#new"
+      scope(:path => options[:scope_path]) do
+        # root :to => "#{options[:controllers][:sessions]}#new"
         get 'login', :to => "#{options[:controllers][:sessions]}#new"
         post 'login', :to => "#{options[:controllers][:sessions]}#create"
         

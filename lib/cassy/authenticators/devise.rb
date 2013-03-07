@@ -5,13 +5,15 @@ module Cassy
       def self.find_user(credentials)
         # Find the user with the given email
         method = "find_by_#{Cassy.config[:username_field] || 'email'}"
-        User.send(method, credentials[:username])
+        CasUser.send(method, credentials[:username])
       end
 
       def self.find_user_from_ticket(ticket)
         key  = Cassy.config[:client_app_user_field] || Cassy.config[:username_field] || "email"
+
         method = "find_by_#{key}"
-        User.send(method, ticket.username)
+
+        CasUser.send(method, ticket.username)
       end
 
       def self.validate(credentials)

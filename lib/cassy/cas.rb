@@ -24,11 +24,16 @@ module Cassy
       lt
     end
 
-    def find_or_generate_service_tickets(username, tgt, hostname)
-      @service_tickets={}
-      valid_services.each do |service|
-        @service_tickets[service] = Cassy::ServiceTicket.generate(service, username, tgt, hostname)
-      end
+    def find_or_generate_service_tickets(service, username, tgt, hostname)
+      # @service_tickets={}
+      # valid_services.each do |service|
+      #   @service_tickets[service] = Cassy::ServiceTicket.generate(service, username, tgt, hostname)
+      # end
+
+
+      Cassy::ServiceTicket.generate(service, username, tgt, hostname)
+
+
     end
 
     def valid_services
@@ -91,6 +96,38 @@ module Cassy
           logger.warn "PGT callback server responded with a bad result code '#{response.code}'. PGT will not be stored."
           nil
         end
+      end
+    end
+
+    def send_logout_notification_for_service_ticket(st)
+      uri = URI.parse(st.service)
+      uri.path = '/' if uri.path.empty?
+      time = Time.now
+      rand = Cassy::Utils.random_string
+      path = uri.path
+      req = Net::HTTP::Post.new(path)
+      req.set_form_data('logoutRequest' => %{<samlp:LogoutRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="#{rand}" Version="2.0" IssueInstant="#{time.rfc2822}">
+   <saml:NameID></saml:NameID>
+   <samlp:SessionIndex>#{st.ticket}</samlp:SessionIndex>
+   </samlp:LogoutRequest>})
+   
+      begin
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = true if uri.scheme =='https'
+        
+        http.start do |conn|
+          response = conn.request(req)
+          if response.kind_of? Net::HTTPSuccess
+            logger.debug "Logout notification successfully posted to #{st.service.inspect}."
+            return true
+          else
+            logger.error "Service #{st.service.inspect} responed to logout notification with code '#{response.code}'!"
+            return false
+          end
+        end
+      rescue Exception => e
+        logger.error "Failed to send logout notification to service #{st.service.inspect} due to #{e}"
+        return false
       end
     end
 
@@ -159,29 +196,51 @@ module Cassy
       # try to find the service in the valid_services list
       # if loosely_matched_services is true, try to match the base url of the service to one in the valid_services list
       # if still no luck, check if there is a default_redirect_url that we can use
+
       @service||= service
-      @ticketing_service||= valid_services.detect{|s| s == @service } || 
-        (settings[:loosely_match_services] == true && valid_services.detect{|s| base_service_url(s) == base_service_url(@service)})
-      if !@ticketing_service && settings[:default_redirect_url] && settings[:default_redirect_url][Rails.env]
-        # try to set it to the default_service
-        @ticketing_service = valid_services.detect{|s| base_service_url(s) == base_service_url(settings[:default_redirect_url][Rails.env])}
-        @default_redirect_url||= settings[:default_redirect_url][Rails.env]
+
+      if service.blank?
+        @ticketing_service ||= nil
+      else
+        @ticketing_service ||= service
       end
+      # logger.debug("detect_ticketing_service for #{@service}")
+
+      # @ticketing_service ||= valid_services.detect{|s| s == @service } || 
+      #   (settings[:loosely_match_services] == true && valid_services.detect{|s| base_service_url(s) == base_service_url(@service)})
+
+      # if !@ticketing_service && settings[:default_redirect_url] && settings[:default_redirect_url][Rails.env]
+      #   # try to set it to the default_service
+      #   @ticketing_service = valid_services.detect{|s| base_service_url(s) == base_service_url(settings[:default_redirect_url][Rails.env])}
+      #   @default_redirect_url||= settings[:default_redirect_url][Rails.env]
+      # end
+
       @username||= params[:username].try(:strip)
       @password||= params[:password]
       @lt||= params['lt']
+
+      logger.debug("@username = #{@username} : @password = #{@password} : @lt = #{@lt}")
+
     end
+
     module_function :detect_ticketing_service
     
     def cas_login
       if valid_credentials?
+
         # 3.6 (ticket-granting cookie)
         tgt = Cassy::TicketGrantingTicket.generate(ticket_username, @extra_attributes, @hostname)
         response.set_cookie('tgt', tgt.to_s)
+
         if @ticketing_service
-          find_or_generate_service_tickets(ticket_username, tgt, @hostname)
-          @st = @service_tickets[@ticketing_service]
+          # find_or_generate_service_tickets(@ticketing_service, ticket_username, tgt, @hostname)
+          # @st = @service_tickets[@ticketing_service]
+
+          @st = find_or_generate_service_tickets(@service, ticket_username, tgt, @hostname)
           @service_with_ticket = (@service.blank? || @default_redirect_url) ? service_uri_with_ticket(@default_redirect_url, @st) : service_uri_with_ticket(@service, @st)
+
+        else 
+          @service_with_ticket = root_url
         end
         true
       else
@@ -192,6 +251,7 @@ module Cassy
     
     # Initializes authenticator, returns true / false depending on if user credentials are accurate
     def valid_credentials?
+
       detect_ticketing_service(params[:service])
       @extra_attributes = {}
       # Should probably be moved out of the request cycle and into an after init hook on the engine
@@ -203,6 +263,7 @@ module Cassy
                     }
       @user = authenticator.find_user(credentials) || authenticator.find_user(:username => session[:username])
       valid = ((@user == @ticketed_user) || authenticator.validate(credentials)) && !!@user
+
       if valid && @user
         authenticator.extra_attributes_to_extract.each do |attr|
           @extra_attributes[attr] = @user.send(attr)
@@ -223,6 +284,7 @@ module Cassy
     end
     
     def ticketed_user(ticket)
+      logger.debug("ticketed_user : #{ticket}")
       # Find the SSO's instance of the user
       @ticketed_user ||= authenticator.find_user_from_ticket(ticket)
     end
